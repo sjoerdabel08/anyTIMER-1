@@ -969,18 +969,64 @@
 
   document.getElementById('backFromPermission').addEventListener('click', ()=> enterHome());
 
+  function showPermError(msg){
+    permError.textContent = msg;
+    permError.style.display = 'block';
+  }
+
   document.getElementById('requestCam').addEventListener('click', async ()=>{
+    permError.style.display = 'none';
+
+    // 1. Basale ondersteuning checken vóórdat we iets aanvragen
+    if(!window.isSecureContext){
+      showPermError('Deze pagina draait niet via https (of localhost). Browsers blokkeren cameratoegang dan altijd, ook als je op "Toestemming geven" tikt. Host de app via https (bijv. GitHub Pages) en open 'm opnieuw.');
+      return;
+    }
+    if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
+      showPermError('Deze browser ondersteunt geen cameratoegang (getUserMedia ontbreekt). Probeer een recente versie van Chrome, Safari of Firefox.');
+      return;
+    }
+
+    const requestBtn = document.getElementById('requestCam');
+    requestBtn.disabled = true;
+    requestBtn.textContent = 'Even geduld...';
+
     try{
+      // 2. Camera + microfoon aanvragen
       stream = await navigator.mediaDevices.getUserMedia({
         video:{ facingMode:'user', width:{ideal:720}, height:{ideal:1280} },
         audio:true
       });
+
+      // 3. Video-element klaarzetten vóór we van scherm wisselen
+      preview.muted = true;
+      preview.playsInline = true;
       preview.srcObject = stream;
-      permError.style.display = 'none';
+
+      // 4. Pas naar het camerascherm zodra de stream écht speelt
+      try{
+        await preview.play();
+      }catch(playErr){
+        // sommige mobiele browsers weigeren play() zonder directe tik erop -
+        // dan proberen we het nog eens bij de eerstvolgende aanraking
+        preview.addEventListener('canplay', ()=> preview.play().catch(()=>{}), { once:true });
+      }
+
       show('camera');
     }catch(err){
-      permError.textContent = 'Geen toegang tot de camera: ' + (err && err.message ? err.message : 'onbekende fout') + '. Controleer je camera-instellingen en probeer opnieuw.';
-      permError.style.display = 'block';
+      const name = err && err.name ? err.name : '';
+      if(name === 'NotAllowedError' || name === 'PermissionDeniedError'){
+        showPermError('Je hebt cameratoegang geweigerd. Zet de camera-permissie voor deze site aan in je browserinstellingen en probeer opnieuw.');
+      } else if(name === 'NotFoundError' || name === 'OverconstrainedError'){
+        showPermError('Er is geen frontcamera gevonden op dit toestel.');
+      } else if(name === 'NotReadableError'){
+        showPermError('De camera is al in gebruik door een andere app. Sluit die app en probeer opnieuw.');
+      } else {
+        showPermError('Geen toegang tot de camera: ' + (err && err.message ? err.message : 'onbekende fout') + '. Controleer je camera-instellingen en probeer opnieuw.');
+      }
+    } finally {
+      requestBtn.disabled = false;
+      requestBtn.textContent = 'Toestemming geven';
     }
   });
 
